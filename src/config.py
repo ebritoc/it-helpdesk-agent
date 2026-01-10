@@ -31,7 +31,7 @@ EMBEDDING_API_URL = f"https://api-inference.huggingface.co/pipeline/feature-extr
 LLM_API_URL = f"https://api-inference.huggingface.co/models/{LLM_MODEL}"
 
 # Retrieval parameters
-TOP_K_RESULTS = 3
+TOP_K_RESULTS = 3  # Number of tickets showed for recommendation
 SIMILARITY_THRESHOLD = 0.0  # Minimum similarity score (0-1)
 EMBEDDING_DIMENSION = 384  # Dimension for all-MiniLM-L6-v2
 
@@ -51,3 +51,21 @@ RECOMMENDATIONS_TXT_PATH = OUTPUTS_DIR / "recommendations.txt"
 MAX_RETRIES = 3
 RETRY_DELAY = 2  # seconds
 BACKOFF_FACTOR = 2  # exponential backoff multiplier
+
+# Qdrant Vector Store Configuration
+QDRANT_STORAGE_PATH = OUTPUTS_DIR / "qdrant_storage"
+QDRANT_COLLECTION_NAME = "helpdesk_tickets"
+QDRANT_VECTOR_SIZE = 384  # Matches all-MiniLM-L6-v2
+QDRANT_DISTANCE_METRIC = "Cosine"
+
+# Hybrid Search Configuration
+ENABLE_SPARSE_VECTORS = True  # Enable/disable BM25 keyword search
+HYBRID_SEARCH_WEIGHT_DENSE = 0.7  # Weight for dense vector search (0-1)
+HYBRID_SEARCH_WEIGHT_SPARSE = 0.3  # Weight for sparse BM25 search (0-1)
+
+# Metadata Filtering Configuration
+ENABLE_CATEGORY_FILTER = True  # Enable category-based filtering
+
+# BM25 Sparse Encoder Parameters
+BM25_K1 = 1.2  # Term saturation parameter
+BM25_B = 0.75  # Length normalization parameter

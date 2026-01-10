@@ -53,23 +53,34 @@ class LLMService:
         prompt += f"Category: {new_ticket.get('category', 'N/A')}\n\n"
 
         # Add similar tickets
-        prompt += "SIMILAR RESOLVED TICKETS:\n\n"
+        prompt += "SIMILAR TICKETS (RESOLVED AND UNRESOLVED):\n\n"
 
         for i, similar in enumerate(similar_tickets, 1):
             ticket = similar.get('ticket', {})
             score = similar.get('similarity_score', 0.0)
+            is_resolved = ticket.get('resolved', False)
 
-            prompt += f"Similar Ticket {i} (Similarity: {score:.2f}):\n"
+            # Add resolution status indicator
+            status = "RESOLVED" if is_resolved else "UNRESOLVED"
+
+            prompt += f"Similar Ticket {i} (Similarity: {score:.2f}) - STATUS: {status}:\n"
             prompt += f"Ticket ID: {ticket.get('ticket_id', 'N/A')}\n"
             prompt += f"Issue: {ticket.get('issue', 'N/A')}\n"
             prompt += f"Description: {ticket.get('description', 'N/A')}\n"
             prompt += f"Category: {ticket.get('category', 'N/A')}\n"
             prompt += f"Resolution: {ticket.get('resolution', 'N/A')}\n"
-            prompt += f"Resolved by: {ticket.get('agent_name', 'N/A')}\n\n"
+            prompt += f"Resolved by: {ticket.get('agent_name', 'N/A')}\n"
+
+            # Add warning for unresolved tickets
+            if not is_resolved:
+                prompt += "⚠️ WARNING: This ticket was NOT fully resolved. Use this resolution with caution.\n"
+
+            prompt += "\n"
 
         # Add instruction
-        prompt += "Based on these similar resolved tickets, provide a specific and actionable resolution recommendation for the new ticket. "
-        prompt += "Focus on practical steps the helpdesk agent can take to resolve the issue.\n\n"
+        prompt += "Based on these similar tickets, provide a specific and actionable resolution recommendation for the new ticket. "
+        prompt += "Focus on practical steps the helpdesk agent can take to resolve the issue. "
+        prompt += "If any similar tickets are UNRESOLVED, mention this in your recommendation and advise caution when applying their suggested resolutions.\n\n"
         prompt += "RECOMMENDATION:"
 
         return prompt

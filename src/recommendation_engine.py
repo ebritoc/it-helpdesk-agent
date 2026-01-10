@@ -83,8 +83,11 @@ class RecommendationEngine:
             use_cache=True
         )
 
-        # Search for similar tickets
-        similar_tickets = self.vector_store.search(query_embedding)
+        # Search for similar tickets (with hybrid search)
+        similar_tickets = self.vector_store.search(
+            query_embedding,
+            query_text=ticket_text  # Enable hybrid search
+        )
 
         # Generate recommendation using LLM
         if similar_tickets:
@@ -112,6 +115,7 @@ class RecommendationEngine:
                     'category': st['ticket'].get('category'),
                     'resolution': st['ticket'].get('resolution'),
                     'agent_name': st['ticket'].get('agent_name'),
+                    'resolved': st['ticket'].get('resolved', False),
                     'similarity_score': st['similarity_score']
                 }
                 for st in similar_tickets

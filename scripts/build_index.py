@@ -20,14 +20,19 @@ def main():
     data_loader = TicketDataLoader()
     engine = RecommendationEngine()
 
-    # Load old tickets (only resolved ones)
+    # Load old tickets (both resolved and unresolved)
     print("\nLoading old tickets...")
-    old_tickets = data_loader.load_all_old_tickets(filter_resolved=True)
+    old_tickets = data_loader.load_all_old_tickets(filter_resolved=False)
 
     if not old_tickets:
-        print("\n[ERROR] No resolved tickets found!")
+        print("\n[ERROR] No tickets found!")
         print("Please check that the data/old_tickets/ directory contains ticket files.")
         sys.exit(1)
+
+    # Count resolved vs unresolved
+    resolved_count = sum(1 for t in old_tickets if t.get('resolved', False))
+    unresolved_count = len(old_tickets) - resolved_count
+    print(f"Loaded {len(old_tickets)} tickets ({resolved_count} resolved, {unresolved_count} unresolved)")
 
     # Show category statistics
     print("\nCategory Distribution:")

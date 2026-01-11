@@ -74,7 +74,7 @@ def format_result_as_markdown(result):
 
 ---
 
-## 📋 Similar Resolved Tickets
+## 📋 Similar Tickets (Resolved & Unresolved)
 
 """
 
@@ -87,13 +87,20 @@ def format_result_as_markdown(result):
         # First ticket is open by default
         open_attr = ' open' if i == 0 else ''
 
+        # Add resolved status badge
+        is_resolved = ticket.get('resolved', False)
+        status_badge = "✅ RESOLVED" if is_resolved else "⚠️ UNRESOLVED"
+        status_color = "#28a745" if is_resolved else "#ffc107"
+
         output += f"""
 <details{open_attr}>
-<summary><b>🎫 Similar Ticket #{i+1} - {ticket.get('ticket_id', 'N/A')} (Similarity: {similarity_score:.1f}%)</b></summary>
+<summary><b>🎫 Similar Ticket #{i+1} - {ticket.get('ticket_id', 'N/A')} (Similarity: {similarity_score:.1f}%)</b> <span style="color: {status_color}; font-weight: bold;">[{status_badge}]</span></summary>
 
 **Issue:** {ticket.get('issue', 'N/A')}
 
 **Category:** {ticket.get('category', 'N/A')}
+
+**Status:** <span style="color: {status_color}; font-weight: bold;">{status_badge}</span>
 
 **Description:** {ticket.get('description', 'N/A')}
 
@@ -247,14 +254,7 @@ def clear_inputs():
 success, error_msg = initialize()
 
 # Build Gradio interface
-with gr.Blocks(
-    title="IT Helpdesk AI Assistant",
-    theme=gr.themes.Soft(),
-    css="""
-    .output-markdown { min-height: 400px; }
-    .tab-label { font-weight: bold; }
-    """
-) as demo:
+with gr.Blocks(title="IT Helpdesk AI Assistant") as demo:
 
     gr.Markdown("""
     # 🎫 IT Helpdesk Ticket Recommendation System
@@ -392,5 +392,10 @@ if __name__ == "__main__":
         server_name="0.0.0.0",  # Allow external access
         server_port=7860,
         share=False,  # Set to True for public Gradio link
-        show_error=True
+        show_error=True,
+        theme=gr.themes.Soft(),
+        css="""
+        .output-markdown { min-height: 400px; }
+        .tab-label { font-weight: bold; }
+        """
     )

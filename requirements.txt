@@ -13,3 +13,6 @@ jupyter>=1.0.0
 
 # Web Interface
 gradio>=4.0.0
+
+# Vector Database
+qdrant-client>=1.7.0

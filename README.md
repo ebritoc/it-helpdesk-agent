@@ -1,16 +1,76 @@
 # IT Helpdesk Ticket Assistance System
 
-An AI-powered system that assists IT helpdesk agents by finding similar resolved tickets and generating resolution recommendations using semantic search and large language models.
+An AI-powered system that helps IT helpdesk agents resolve tickets faster by finding similar past cases and generating actionable recommendations using hybrid search and large language models.
 
-## Overview
+## What It Does
 
-This system uses a **Retrieval-Augmented Generation (RAG)** approach to help IT helpdesk agents resolve tickets faster by:
+- 🔍 **Hybrid Search**: Finds similar tickets using both semantic similarity (dense vectors) and keyword matching (BM25 sparse vectors)
+- 🤖 **AI Recommendations**: Generates specific resolution guidance using Llama 3.1 based on past solutions
+- ⚠️ **Smart Warnings**: Alerts when recommendations come from unresolved tickets
+- 🌐 **Web Interface**: Interactive Gradio UI for easy ticket processing
+- 💾 **Persistent Storage**: Uses Qdrant vector database for production-grade performance
 
-1. **Semantic Search**: Finding previously resolved tickets that are similar to new issues
-2. **AI Recommendations**: Generating specific, actionable resolution guidance based on past solutions
-3. **Multi-format Support**: Loading ticket data from CSV, Excel, and JSON files
+## Quick Start
 
-## Architecture
+### 1. Prerequisites
+
+- Python 3.8+
+- HuggingFace account (free) - [Sign up here](https://huggingface.co/)
+
+### 2. Get HuggingFace API Token
+
+1. Go to [HuggingFace Settings → Access Tokens](https://huggingface.co/settings/tokens)
+2. Create a new token with "Read" permission
+3. Copy the token for the next step
+
+### 3. Install
+
+```bash
+# Clone or download the repository
+cd it-helpdesk-agent
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure environment
+cp .env.example .env
+# Edit .env and add your token: HF_API_TOKEN=hf_xxxxxxxxxxxxx
+```
+
+### 4. Build Index
+
+```bash
+python scripts/build_index.py
+```
+
+This processes all tickets (resolved and unresolved) from `data/old_tickets/` and builds a searchable index with:
+- Dense embeddings (384-dim vectors from sentence-transformers/all-MiniLM-L6-v2)
+- Sparse BM25 vectors for keyword matching
+- Saves to `outputs/qdrant_storage/`
+
+### 5. Use the System
+
+**Option A: Web Interface (Recommended)**
+
+```bash
+python app.py
+```
+
+Open http://localhost:7860 in your browser. Two tabs available:
+- **Try It Yourself**: Enter ticket details manually
+- **Evaluation Dataset**: Test with pre-loaded tickets
+
+**Option B: Command Line**
+
+```bash
+python scripts/generate_recommendations.py
+```
+
+Processes tickets from `data/new_tickets.csv` and saves results to:
+- `outputs/recommendations.json` (structured data)
+- `outputs/recommendations.txt` (human-readable)
+
+## How It Works
 
 ```
 New Ticket Input
@@ -19,124 +79,38 @@ Text Preprocessing (Issue + Description)
     ↓
 Embedding Generation (sentence-transformers/all-MiniLM-L6-v2)
     ↓
-Cosine Similarity Search
+Hybrid Search (Qdrant):
+  ├─ Dense Vector Search (semantic similarity)
+  └─ Sparse Vector Search (BM25 keyword matching)
+         ↓
+    Reciprocal Rank Fusion (RRF) combines rankings
     ↓
-Retrieve Top-3 Similar Resolved Tickets
+Retrieve Top-5 Similar Tickets (resolved + unresolved)
     ↓
-LLM Prompt Construction
+LLM Prompt with Warnings for Unresolved Tickets
     ↓
 Resolution Recommendation (meta-llama/Llama-3.1-8B-Instruct)
-    ↓
-Multi-format Output (JSON + Text + Console)
 ```
 
-### Key Components
+**Key Features:**
 
-- **Data Loader**: Unified loader for CSV, XLSX, and JSON ticket formats
-- **Text Preprocessor**: Combines ticket fields for optimal semantic representation
-- **Embedding Service**: Generates 384-dimensional vectors via HuggingFace API
-- **Vector Store**: In-memory cosine similarity search with numpy
-- **LLM Service**: Generates resolution recommendations via HuggingFace API
-- **Recommendation Engine**: Orchestrates the entire pipeline
+- **Hybrid Search**: Combines semantic understanding with keyword matching for better retrieval
+- **RRF Fusion**: Reciprocal Rank Fusion algorithm balances dense and sparse search results
+- **Unresolved Tickets**: System includes unresolved tickets but warns when using them as reference
+- **Persistent Storage**: Qdrant vector database for production-ready performance
+- **Status Badges**: UI shows resolved/unresolved status for each similar ticket
 
-## Setup Instructions
+## Configuration
 
-### 1. Prerequisites
+Key settings in `src/config.py`:
 
-- Python 3.8 or higher
-- HuggingFace account (free)
-- Internet connection for API access
-
-### 2. Get HuggingFace API Token
-
-1. Go to [HuggingFace](https://huggingface.co/) and create a free account
-2. Navigate to [Settings → Access Tokens](https://huggingface.co/settings/tokens)
-3. Click "New token"
-4. Give it a name (e.g., "IT-Helpdesk-System")
-5. Select "Read" permission
-6. Click "Generate token"
-7. Copy the token (you'll need it in step 4)
-
-### 3. Install Dependencies
-
-```bash
-# Create a virtual environment (recommended)
-python -m venv venv
-
-# Activate virtual environment
-# On Windows:
-venv\Scripts\activate
-# On macOS/Linux:
-source venv/bin/activate
-
-# Install required packages
-pip install -r requirements.txt
+```python
+TOP_K_RESULTS = 5              # Number of similar tickets to retrieve
+SIMILARITY_THRESHOLD = 0.0     # Minimum similarity score (0-1)
+ENABLE_SPARSE_VECTORS = True   # Enable BM25 keyword search
+BM25_K1 = 1.2                  # BM25 term saturation
+BM25_B = 0.75                  # BM25 length normalization
 ```
-
-### 4. Configure Environment
-
-Create a `.env` file in the project root:
-
-```bash
-# Copy the example file
-cp .env.example .env
-
-# Edit .env and add your HuggingFace API token
-# Replace 'your_huggingface_api_token_here' with your actual token
-```
-
-Your `.env` file should look like:
-```
-HF_API_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
-
-## Usage
-
-### Step 1: Build the Index
-
-This step processes all resolved tickets and creates a searchable vector index:
-
-```bash
-python scripts/build_index.py
-```
-
-**What it does:**
-- Loads all old tickets from `data/old_tickets/` (CSV, XLSX, JSON)
-- Filters to only include tickets marked as Resolved=True
-- Generates embeddings for each ticket
-- Saves the index to `outputs/vector_index.pkl` and `outputs/embeddings_cache.pkl`
-
-**Output:**
-```
-Loaded 10 tickets from ticket_dump_1.csv
-Loaded 11 tickets from ticket_dump_2.xlsx
-Loaded 10 tickets from ticket_dump_3.json
-Filtered to 21 resolved tickets
-
-Building index from 21 tickets...
-Generating embeddings...
-✓ Index built successfully!
-```
-
-### Step 2: Generate Recommendations
-
-Process new tickets and generate recommendations:
-
-```bash
-python scripts/generate_recommendations.py
-```
-
-**What it does:**
-- Loads the pre-built index (or builds it if not found)
-- Processes each new ticket from `data/new_tickets.csv`
-- Finds the 3 most similar resolved tickets
-- Generates AI-powered resolution recommendations
-- Saves results in multiple formats
-
-**Outputs:**
-- `outputs/recommendations.json` - Structured JSON with all details
-- `outputs/recommendations.txt` - Human-readable text format
-- Console output with summary and example
 
 ## Project Structure
 
@@ -144,205 +118,145 @@ python scripts/generate_recommendations.py
 it-helpdesk-agent/
 ├── data/
 │   ├── new_tickets.csv              # New tickets to process
-│   └── old_tickets/                 # Resolved tickets database
-│       ├── ticket_dump_1.csv
-│       ├── ticket_dump_2.xlsx
-│       └── ticket_dump_3.json
+│   └── old_tickets/                 # Historical tickets (resolved + unresolved)
 ├── src/
-│   ├── __init__.py
-│   ├── config.py                    # Configuration and constants
-│   ├── data_loader.py               # Multi-format data loading
-│   ├── preprocessor.py              # Text preprocessing
-│   ├── embedding_service.py         # HuggingFace embedding API
-│   ├── vector_store.py              # Similarity search
-│   ├── llm_service.py               # LLM recommendation API
-│   └── recommendation_engine.py     # Pipeline orchestration
+│   ├── config.py                    # Configuration
+│   ├── vector_store.py              # Qdrant + hybrid search
+│   ├── sparse_encoder.py            # BM25 implementation
+│   ├── recommendation_engine.py     # Pipeline orchestration
+│   └── ...
 ├── scripts/
-│   ├── build_index.py               # Index builder script
-│   └── generate_recommendations.py  # Recommendation generator
-├── outputs/                         # Generated files
-│   ├── embeddings_cache.pkl         # Cached embeddings
-│   ├── vector_index.pkl             # Vector search index
-│   ├── recommendations.json         # JSON output
-│   └── recommendations.txt          # Text output
-├── .env                             # Environment variables (create this)
-├── .env.example                     # Template for .env
-├── .gitignore                       # Git ignore rules
-├── requirements.txt                 # Python dependencies
-├── LICENSE                          # MIT License
-└── README.md                        # This file
+│   ├── build_index.py               # Build search index
+│   └── generate_recommendations.py  # Batch processing
+├── app.py                           # Gradio web interface
+├── outputs/
+│   └── qdrant_storage/              # Vector database
+└── .env                             # API token (create this)
 ```
 
-## How It Works
+## Data Format
 
-### 1. Semantic Search with Embeddings
+The system loads tickets from the `data/` directory. Supported formats: **CSV**, **Excel (.xlsx)**, and **JSON**.
 
-The system uses `sentence-transformers/all-MiniLM-L6-v2` to convert ticket text into 384-dimensional vectors. These embeddings capture the semantic meaning of the text, allowing the system to find similar tickets even when they use different words.
+### Historical Tickets (for index building)
+
+Place files in `data/old_tickets/`:
+
+**Required fields:**
+- `Ticket ID` - Unique identifier (e.g., "TCKT-1001")
+- `Issue` - Brief issue title (e.g., "VPN connection timeout")
+- `Description` - Detailed description
+- `Category` - Category name (e.g., "Network", "Software", "Hardware")
+- `Date` - Date string (e.g., "2024-01-15")
+- `Resolution` - How it was resolved
+- `Agent Name` - Who resolved it
+- `Resolved` - Boolean: `True`, `False`, `1`, `0`, `"true"`, `"false"`
+
+**Example CSV (data/old_tickets/tickets.csv):**
+```csv
+Ticket ID,Issue,Description,Category,Date,Resolution,Agent Name,Resolved
+TCKT-1001,VPN timeout,VPN disconnects after 5 minutes,Network,2024-01-15,Updated VPN settings,John Doe,True
+TCKT-1002,Printer offline,Cannot print documents,Hardware,2024-01-16,Reinstalled drivers,Jane Smith,True
+TCKT-1003,Email sync issue,Emails not syncing,Software,2024-01-17,Investigating root cause,Bob Jones,False
+```
+
+**Example JSON (data/old_tickets/tickets.json):**
+```json
+[
+  {
+    "Ticket ID": "TCKT-1001",
+    "Issue": "VPN timeout",
+    "Description": "VPN disconnects after 5 minutes",
+    "Category": "Network",
+    "Date": "2024-01-15",
+    "Resolution": "Updated VPN settings",
+    "Agent Name": "John Doe",
+    "Resolved": true
+  }
+]
+```
+
+### New Tickets (to process)
+
+Place in `data/new_tickets.csv`:
+
+**Required fields:**
+- `Ticket ID`, `Issue`, `Description`, `Category`, `Date`
 
 **Example:**
-- "VPN connection timeout" and "VPN keeps disconnecting" would have high similarity
-- Category alone isn't enough - "Email not syncing" and "Email client crashes" are both Software but need different solutions
-
-### 2. Retrieval-Augmented Generation (RAG)
-
-Rather than asking the LLM to guess solutions, we:
-1. Find 3 actually resolved tickets that are similar
-2. Show the LLM what worked before
-3. Ask it to generate a specific recommendation based on those examples
-
-This grounds the LLM's output in real resolutions, making recommendations more accurate and actionable.
-
-### 3. Prompt Engineering
-
-The system constructs prompts that include:
-- New ticket details (ID, Issue, Description, Category)
-- Similar tickets with their resolutions
-- Similarity scores to indicate confidence
-- Clear instructions for actionable recommendations
-
-## Example Output
-
-```json
-{
-  "ticket_id": "TCKT-2000",
-  "issue": "VPN connection timeout",
-  "description": "VPN connection times out frequently during use.",
-  "category": "Network",
-  "similar_tickets": [
-    {
-      "ticket_id": "TCKT-1011",
-      "issue": "VPN disconnection issues",
-      "similarity_score": 0.873,
-      "resolution": "VPN settings updated",
-      "category": "Network"
-    }
-  ],
-  "recommendation": "Based on the similar VPN disconnection case, I recommend the following steps:\n\n1. Update VPN client settings...",
-  "processing_time_seconds": 2.3
-}
+```csv
+Ticket ID,Issue,Description,Category,Date
+TCKT-2001,Cannot access shared drive,User reports permission denied error,Network,2024-02-01
 ```
 
-## Evaluation
+**Note:** Field names are case-insensitive. Both `Ticket ID` and `ticket_id` work.
 
-### Quality Assessment
+## Testing from Scratch
 
-To evaluate the system:
+To test everything from a clean state:
 
-1. **Relevance of Similar Tickets**: Check if retrieved tickets are actually similar
-2. **Category Alignment**: Do similar tickets match the category?
-3. **Resolution Quality**: Are recommendations specific and actionable?
-4. **Consistency**: Do similar new tickets get similar recommendations?
+```bash
+# 1. Clean previous outputs
+rm -rf outputs/
 
-### Metrics
+# 2. Rebuild index (loads 30 tickets: 17 resolved, 13 unresolved)
+python scripts/build_index.py
 
-- **Similarity Scores**: Higher scores (>0.7) indicate strong matches
-- **Processing Time**: Typically 2-5 seconds per ticket
-- **Coverage**: % of new tickets with high-similarity matches
+# 3. Test with evaluation dataset
+python scripts/generate_recommendations.py
 
-## Future Improvements
+# 4. Launch web interface
+python app.py
+# Open http://localhost:7860 and select "TCKT-2004" from Evaluation Dataset
+```
 
-### Short-term (5-10 hours)
-- **Hybrid Search**: Combine semantic similarity with category filtering
-- **Prompt Engineering**: Add few-shot examples and chain-of-thought reasoning
-- **Confidence Scores**: Indicate when the system is uncertain
-- **Web UI**: Build a Streamlit or Gradio interface for easier use
-
-### Long-term (Production System)
-- **Vector Database**: Use Pinecone, Weaviate, or ChromaDB for scalability
-- **Fine-tuned Models**: Train embedding model on IT helpdesk domain data
-- **User Feedback Loop**: Let agents rate recommendations to improve over time
-- **Multi-stage Retrieval**: Use cheap model first, then rerank with better model
-- **Auto-categorization**: Automatically categorize incoming tickets
-- **REST API**: FastAPI endpoint for integration with existing helpdesk software
-- **Monitoring**: Track usage, performance, and recommendation quality
+**Expected Results:**
+- Index builds with 30 tickets
+- TCKT-2004 matches with similar shared drive tickets
+- TCKT-1047 appears in results (marked as UNRESOLVED)
+- Web UI shows status badges: ✅ RESOLVED or ⚠️ UNRESOLVED
 
 ## Troubleshooting
 
-### API Token Issues
-
-**Error:** `HF_API_TOKEN not found in environment variables`
-
-**Solution:** Make sure you've created a `.env` file with your HuggingFace token:
-```bash
-HF_API_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+**API Token Error**
+```
+Error: HF_API_TOKEN not found
+Solution: Create .env file with HF_API_TOKEN=your_token_here
 ```
 
-### Model Loading Errors
+**Model Loading (503 Error)**
+```
+Error: Model is loading
+Solution: Wait 30-60 seconds, system auto-retries
+```
 
-**Error:** `503 - Model is loading`
-
-**Solution:** The HuggingFace API needs to load the model. The system will automatically wait and retry. First requests may take 30-60 seconds.
-
-### Rate Limiting
-
-**Error:** `429 - Rate limit exceeded`
-
-**Solution:** The free tier has rate limits. The system includes retry logic with exponential backoff. For production use, consider:
-- HuggingFace Pro subscription
-- Self-hosted models
-- Caching (already implemented)
-
-### No Similar Tickets Found
-
-**Issue:** System returns "No similar tickets found"
-
-**Possible causes:**
-1. No tickets in the index (check `build_index.py` output)
-2. Similarity threshold too high (adjust in `config.py`)
-3. New ticket category has no examples in old tickets
+**Database Lock Error**
+```
+Error: Storage folder already accessed
+Solution: Close other Python processes using the database
+```
 
 ## Technical Details
 
-### Models Used
+**Models:**
+- Embeddings: `sentence-transformers/all-MiniLM-L6-v2` (384-dim)
+- Generation: `meta-llama/Llama-3.1-8B-Instruct`
 
-- **Embeddings**: `sentence-transformers/all-MiniLM-L6-v2`
-  - 384-dimensional vectors
-  - Fast and efficient for semantic search
-  - Good balance of quality and speed
+**Search Algorithm:**
+- Hybrid search with dense (semantic) + sparse (BM25 keyword) vectors
+- Reciprocal Rank Fusion (RRF) for combining results
+- Category-based metadata filtering support
 
-- **Generation**: `meta-llama/Llama-3.1-8B-Instruct`
-  - 8B parameter instruction-tuned model
-  - Good at following instructions
-  - Generates coherent, contextual recommendations
-
-### Configuration
-
-Key parameters (in `src/config.py`):
-
-```python
-TOP_K_RESULTS = 3              # Number of similar tickets to retrieve
-SIMILARITY_THRESHOLD = 0.0     # Minimum similarity score (0-1)
-LLM_TEMPERATURE = 0.7          # Higher = more creative, lower = more focused
-LLM_MAX_NEW_TOKENS = 500       # Maximum length of recommendations
-```
-
-### Data Schema
-
-**New Tickets:**
-- Ticket ID, Issue, Description, Category, Date
-
-**Old Tickets:**
-- Ticket ID, Issue, Description, Category, Date, Resolution, Agent Name, Resolved
+**Dependencies:**
+- `qdrant-client>=1.7.0` - Vector database
+- `gradio>=4.0.0` - Web interface
+- `pandas`, `numpy`, `requests` - Data processing
+- `python-dotenv` - Environment configuration
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details
-
-## Contributing
-
-This is a prototype system built for evaluation purposes. For production use, consider the improvements listed in the "Future Improvements" section.
-
-## Support
-
-For questions or issues:
-1. Check the Troubleshooting section
-2. Review HuggingFace API documentation
-3. Check that all dependencies are installed correctly
+MIT License - see LICENSE file for details
 
 ---
 
-**Built with:**
-- HuggingFace Inference API
-- sentence-transformers
-- Llama 3.1
-- Python, NumPy, Pandas
+**Built with:** HuggingFace API • Qdrant • Llama 3.1 • sentence-transformers • Gradio

@@ -59,13 +59,9 @@ QDRANT_VECTOR_SIZE = 384  # Matches all-MiniLM-L6-v2
 QDRANT_DISTANCE_METRIC = "Cosine"
 
 # Hybrid Search Configuration
-ENABLE_SPARSE_VECTORS = True  # Enable/disable BM25 keyword search
-HYBRID_SEARCH_WEIGHT_DENSE = 0.7  # Weight for dense vector search (0-1)
-HYBRID_SEARCH_WEIGHT_SPARSE = 0.3  # Weight for sparse BM25 search (0-1)
+ENABLE_SPARSE_VECTORS = True  # Enable/disable native BM25 keyword search
+# Note: RRF fusion is used, so no manual weight configuration needed
+# Qdrant's native BM25 with IDF modifier handles sparse vector generation
 
 # Metadata Filtering Configuration
 ENABLE_CATEGORY_FILTER = True  # Enable category-based filtering
-
-# BM25 Sparse Encoder Parameters
-BM25_K1 = 1.2  # Term saturation parameter
-BM25_B = 0.75  # Length normalization parameter

@@ -15,4 +15,4 @@ jupyter>=1.0.0
 gradio>=4.0.0
 
 # Vector Database
-qdrant-client>=1.7.0
+qdrant-client>=1.15.2

@@ -1,14 +1,14 @@
 # IT Helpdesk Ticket Assistance System
 
-An AI-powered system that helps IT helpdesk agents resolve tickets faster by finding similar past cases and generating actionable recommendations using hybrid search and large language models.
+An AI-powered system that helps IT helpdesk agents resolve tickets faster by finding similar past cases and generating actionable recommendations using semantic search and large language models.
 
 ## What It Does
 
-- 🔍 **Hybrid Search**: Finds similar tickets using both semantic similarity (dense vectors) and keyword matching (BM25 sparse vectors)
+- 🔍 **Semantic Search**: Finds similar tickets using dense vector embeddings that capture meaning and handle synonyms
 - 🤖 **AI Recommendations**: Generates specific resolution guidance using Llama 3.1 based on past solutions
 - ⚠️ **Smart Warnings**: Alerts when recommendations come from unresolved tickets
 - 🌐 **Web Interface**: Interactive Gradio UI for easy ticket processing
-- 💾 **Persistent Storage**: Uses Qdrant vector database for production-grade performance
+- 💾 **Persistent Storage**: Uses Qdrant vector database with direct client integration
 
 ## Quick Start
 
@@ -45,7 +45,6 @@ python scripts/build_index.py
 
 This processes all tickets (resolved and unresolved) from `data/old_tickets/` and builds a searchable index with:
 - Dense embeddings (384-dim vectors from sentence-transformers/all-MiniLM-L6-v2)
-- Sparse BM25 vectors for keyword matching
 - Saves to `outputs/qdrant_storage/`
 
 ### 5. Use the System
@@ -79,13 +78,10 @@ Text Preprocessing (Issue + Description)
     ↓
 Embedding Generation (sentence-transformers/all-MiniLM-L6-v2)
     ↓
-Hybrid Search (Qdrant):
-  ├─ Dense Vector Search (semantic similarity)
-  └─ Sparse Vector Search (BM25 keyword matching)
-         ↓
-    Reciprocal Rank Fusion (RRF) combines rankings
+Semantic Search (Qdrant):
+    Dense Vector Search (cosine similarity)
     ↓
-Retrieve Top-5 Similar Tickets (resolved + unresolved)
+Retrieve Top-3 Similar Tickets (resolved + unresolved)
     ↓
 LLM Prompt with Warnings for Unresolved Tickets
     ↓
@@ -94,8 +90,8 @@ Resolution Recommendation (meta-llama/Llama-3.1-8B-Instruct)
 
 **Key Features:**
 
-- **Hybrid Search**: Combines semantic understanding with keyword matching for better retrieval
-- **RRF Fusion**: Reciprocal Rank Fusion algorithm balances dense and sparse search results
+- **Semantic Search**: Dense embeddings capture meaning and handle synonyms effectively
+- **Direct Client Integration**: Simple architecture using Qdrant client without abstraction layers
 - **Unresolved Tickets**: System includes unresolved tickets but warns when using them as reference
 - **Persistent Storage**: Qdrant vector database for production-ready performance
 - **Status Badges**: UI shows resolved/unresolved status for each similar ticket
@@ -105,11 +101,9 @@ Resolution Recommendation (meta-llama/Llama-3.1-8B-Instruct)
 Key settings in `src/config.py`:
 
 ```python
-TOP_K_RESULTS = 5              # Number of similar tickets to retrieve
+TOP_K_RESULTS = 3              # Number of similar tickets to retrieve
 SIMILARITY_THRESHOLD = 0.0     # Minimum similarity score (0-1)
-ENABLE_SPARSE_VECTORS = True   # Enable BM25 keyword search
-BM25_K1 = 1.2                  # BM25 term saturation
-BM25_B = 0.75                  # BM25 length normalization
+EMBEDDING_DIMENSION = 384      # Dimension for all-MiniLM-L6-v2
 ```
 
 ## Project Structure
@@ -121,9 +115,9 @@ it-helpdesk-agent/
 │   └── old_tickets/                 # Historical tickets (resolved + unresolved)
 ├── src/
 │   ├── config.py                    # Configuration
-│   ├── vector_store.py              # Qdrant + hybrid search
-│   ├── sparse_encoder.py            # BM25 implementation
-│   ├── recommendation_engine.py     # Pipeline orchestration
+│   ├── recommendation_engine.py     # Pipeline orchestration (uses Qdrant directly)
+│   ├── embedding_service.py         # HuggingFace embedding API
+│   ├── llm_service.py               # LLM recommendation generation
 │   └── ...
 ├── scripts/
 │   ├── build_index.py               # Build search index
@@ -243,12 +237,17 @@ Solution: Close other Python processes using the database
 - Generation: `meta-llama/Llama-3.1-8B-Instruct`
 
 **Search Algorithm:**
-- Hybrid search with dense (semantic) + sparse (BM25 keyword) vectors
-- Reciprocal Rank Fusion (RRF) for combining results
+- Dense vector search using cosine similarity
+- Direct Qdrant client integration (no abstraction layers)
 - Category-based metadata filtering support
 
+**Architecture:**
+- Simplified codebase: ~500 lines removed (VectorStore wrapper + BM25 encoder)
+- Direct QdrantClient usage in RecommendationEngine
+- Semantic search captures meaning and handles synonyms
+
 **Dependencies:**
-- `qdrant-client>=1.7.0` - Vector database
+- `qdrant-client>=1.15.2` - Vector database
 - `gradio>=4.0.0` - Web interface
 - `pandas`, `numpy`, `requests` - Data processing
 - `python-dotenv` - Environment configuration

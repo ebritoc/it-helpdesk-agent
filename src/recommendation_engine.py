@@ -1,11 +1,20 @@
 """Recommendation engine that orchestrates the entire ticket assistance pipeline"""
 import time
 from typing import List, Dict, Any
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance, VectorParams, PointStruct, Document,
+    SparseVectorParams, SparseIndexParams, Modifier,
+    Prefetch, FusionQuery, Fusion
+)
 from src.data_loader import TicketDataLoader
 from src.preprocessor import TextPreprocessor
 from src.embedding_service import EmbeddingService
-from src.vector_store import VectorStore
 from src.llm_service import LLMService
+from src.config import (
+    QDRANT_STORAGE_PATH, QDRANT_COLLECTION_NAME, QDRANT_VECTOR_SIZE,
+    TOP_K_RESULTS, ENABLE_SPARSE_VECTORS
+)
 
 
 class RecommendationEngine:
@@ -14,7 +23,6 @@ class RecommendationEngine:
     def __init__(
         self,
         embedding_service: EmbeddingService = None,
-        vector_store: VectorStore = None,
         llm_service: LLMService = None
     ):
         """
@@ -22,13 +30,41 @@ class RecommendationEngine:
 
         Args:
             embedding_service: EmbeddingService instance (creates new if None)
-            vector_store: VectorStore instance (creates new if None)
             llm_service: LLMService instance (creates new if None)
         """
         self.embedding_service = embedding_service or EmbeddingService()
-        self.vector_store = vector_store or VectorStore()
         self.llm_service = llm_service or LLMService()
         self.preprocessor = TextPreprocessor()
+
+        # Initialize Qdrant client
+        self.qdrant_client = QdrantClient(path=str(QDRANT_STORAGE_PATH))
+        self.collection_name = QDRANT_COLLECTION_NAME
+        self._ensure_collection_exists()
+
+    def _ensure_collection_exists(self):
+        """Create Qdrant collection if it doesn't exist"""
+        collections = self.qdrant_client.get_collections().collections
+        if any(col.name == self.collection_name for col in collections):
+            return
+
+        # Create collection with dense vectors (sparse vectors disabled for now)
+        vectors_config = {
+            "dense": VectorParams(size=QDRANT_VECTOR_SIZE, distance=Distance.COSINE)
+        }
+
+        self.qdrant_client.create_collection(
+            collection_name=self.collection_name,
+            vectors_config=vectors_config
+        )
+
+        # Create category payload index for filtering
+        self.qdrant_client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="category",
+            field_schema="keyword"
+        )
+
+        print(f"[RecommendationEngine] Created Qdrant collection '{self.collection_name}'")
 
     def build_index(self, old_tickets: List[Dict[str, Any]]):
         """
@@ -51,16 +87,36 @@ class RecommendationEngine:
             show_progress=True
         )
 
-        # Add to vector store
-        print("Adding to vector store...")
-        self.vector_store.add_tickets(old_tickets, embeddings)
+        # Add to Qdrant (dense vectors only for now)
+        print("Adding to Qdrant...")
+        points = []
+        for idx, (ticket, embedding) in enumerate(zip(old_tickets, embeddings)):
+            points.append(PointStruct(
+                id=idx,
+                vector={"dense": embedding.tolist()},
+                payload=ticket  # Store entire ticket as payload
+            ))
+
+        self.qdrant_client.upsert(collection_name=self.collection_name, points=points)
+        print(f"[RecommendationEngine] Added {len(old_tickets)} tickets to Qdrant")
 
         # Print statistics
-        stats = self.vector_store.get_statistics()
+        collection_info = self.qdrant_client.get_collection(self.collection_name)
         print(f"\nIndex built successfully!")
-        print(f"Total tickets: {stats['total_tickets']}")
-        print(f"Embedding dimension: {stats['embedding_dimension']}")
-        print(f"Categories: {stats['categories']}")
+        print(f"Total tickets: {collection_info.points_count}")
+        print(f"Embedding dimension: {QDRANT_VECTOR_SIZE}")
+
+        # Get category distribution
+        category_stats = {}
+        scroll_result = self.qdrant_client.scroll(
+            collection_name=self.collection_name,
+            limit=10000,
+            with_payload=True
+        )
+        for point in scroll_result[0]:
+            category = point.payload.get('category', 'Unknown')
+            category_stats[category] = category_stats.get(category, 0) + 1
+        print(f"Categories: {category_stats}")
 
     def get_recommendation(self, new_ticket: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -83,11 +139,20 @@ class RecommendationEngine:
             use_cache=True
         )
 
-        # Search for similar tickets (with hybrid search)
-        similar_tickets = self.vector_store.search(
-            query_embedding,
-            query_text=ticket_text  # Enable hybrid search
+        # Search for similar tickets (dense-only search for now)
+        query_response = self.qdrant_client.query_points(
+            collection_name=self.collection_name,
+            query=query_embedding.tolist(),
+            using="dense",
+            limit=TOP_K_RESULTS,
+            with_payload=True
         )
+
+        # Transform to expected format
+        similar_tickets = [
+            {'ticket': dict(point.payload), 'similarity_score': float(point.score)}
+            for point in query_response.points
+        ]
 
         # Generate recommendation using LLM
         if similar_tickets:
@@ -166,27 +231,31 @@ class RecommendationEngine:
         return results
 
     def save_state(self):
-        """Save embedding cache and vector index to disk"""
+        """Save embedding cache to disk (Qdrant auto-persists)"""
         print("\nSaving state...")
         self.embedding_service.save_cache()
-        self.vector_store.save_index()
-        print("State saved successfully")
+        # Qdrant auto-persists to disk, no manual save needed
+        print(f"State saved successfully (Qdrant data at {QDRANT_STORAGE_PATH})")
 
     def load_state(self) -> bool:
         """
-        Load embedding cache and vector index from disk
+        Load embedding cache and verify Qdrant collection exists
 
         Returns:
             True if state loaded successfully, False otherwise
         """
         print("\nLoading saved state...")
         self.embedding_service.load_cache()
-        index_loaded = self.vector_store.load_index()
 
-        if index_loaded:
-            stats = self.vector_store.get_statistics()
-            print(f"State loaded successfully - {stats['total_tickets']} tickets indexed")
-            return True
-        else:
-            print("No saved state found")
+        # Verify collection exists
+        collections = self.qdrant_client.get_collections().collections
+        if not any(col.name == self.collection_name for col in collections):
+            print("No saved state found - collection doesn't exist")
             return False
+
+        # Get collection info
+        collection_info = self.qdrant_client.get_collection(self.collection_name)
+        point_count = collection_info.points_count
+
+        print(f"State loaded successfully - {point_count} tickets indexed")
+        return True

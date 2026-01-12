@@ -42,19 +42,30 @@ class RecommendationEngine:
         self._ensure_collection_exists()
 
     def _ensure_collection_exists(self):
-        """Create Qdrant collection if it doesn't exist"""
+        """Create Qdrant collection with dense + sparse vectors if it doesn't exist"""
         collections = self.qdrant_client.get_collections().collections
         if any(col.name == self.collection_name for col in collections):
             return
 
-        # Create collection with dense vectors (sparse vectors disabled for now)
+        # Dense vector configuration
         vectors_config = {
             "dense": VectorParams(size=QDRANT_VECTOR_SIZE, distance=Distance.COSINE)
         }
 
+        # Sparse vector configuration for native BM25
+        sparse_vectors_config = None
+        if ENABLE_SPARSE_VECTORS:
+            sparse_vectors_config = {
+                "sparse": SparseVectorParams(
+                    index=SparseIndexParams(),
+                    modifier=Modifier.IDF  # Native IDF calculation
+                )
+            }
+
         self.qdrant_client.create_collection(
             collection_name=self.collection_name,
-            vectors_config=vectors_config
+            vectors_config=vectors_config,
+            sparse_vectors_config=sparse_vectors_config
         )
 
         # Create category payload index for filtering
@@ -64,7 +75,8 @@ class RecommendationEngine:
             field_schema="keyword"
         )
 
-        print(f"[RecommendationEngine] Created Qdrant collection '{self.collection_name}'")
+        search_type = "hybrid (dense + sparse BM25)" if ENABLE_SPARSE_VECTORS else "dense-only"
+        print(f"[RecommendationEngine] Created Qdrant collection '{self.collection_name}' with {search_type} search")
 
     def build_index(self, old_tickets: List[Dict[str, Any]]):
         """
@@ -87,18 +99,32 @@ class RecommendationEngine:
             show_progress=True
         )
 
-        # Add to Qdrant (dense vectors only for now)
+        # Add to Qdrant with both dense and sparse vectors
         print("Adding to Qdrant...")
         points = []
         for idx, (ticket, embedding) in enumerate(zip(old_tickets, embeddings)):
+            # Prepare text for BM25 encoding (issue + description)
+            ticket_text = f"{ticket.get('issue', '')} {ticket.get('description', '')}"
+
+            # Build vector configuration
+            vector_config = {
+                "dense": embedding.tolist()
+            }
+
+            # Add native BM25 sparse vector if enabled
+            if ENABLE_SPARSE_VECTORS:
+                vector_config["sparse"] = Document(text=ticket_text, model="Qdrant/bm25")
+
             points.append(PointStruct(
                 id=idx,
-                vector={"dense": embedding.tolist()},
+                vector=vector_config,
                 payload=ticket  # Store entire ticket as payload
             ))
 
         self.qdrant_client.upsert(collection_name=self.collection_name, points=points)
-        print(f"[RecommendationEngine] Added {len(old_tickets)} tickets to Qdrant")
+
+        search_type = "hybrid (dense + sparse)" if ENABLE_SPARSE_VECTORS else "dense-only"
+        print(f"[RecommendationEngine] Added {len(old_tickets)} tickets to Qdrant with {search_type} vectors")
 
         # Print statistics
         collection_info = self.qdrant_client.get_collection(self.collection_name)
@@ -139,14 +165,42 @@ class RecommendationEngine:
             use_cache=True
         )
 
-        # Search for similar tickets (dense-only search for now)
-        query_response = self.qdrant_client.query_points(
-            collection_name=self.collection_name,
-            query=query_embedding.tolist(),
-            using="dense",
-            limit=TOP_K_RESULTS,
-            with_payload=True
-        )
+        # Prepare full text for BM25 (sparse vector query)
+        full_text = f"{new_ticket.get('issue', '')} {new_ticket.get('description', '')}"
+
+        # Execute search based on configuration
+        if ENABLE_SPARSE_VECTORS:
+            # Hybrid search with RRF fusion
+            query_response = self.qdrant_client.query_points(
+                collection_name=self.collection_name,
+                prefetch=[
+                    # Dense vector search (semantic)
+                    Prefetch(
+                        query=query_embedding.tolist(),
+                        using="dense",
+                        limit=TOP_K_RESULTS * 2  # Retrieve more candidates for fusion
+                    ),
+                    # Sparse vector search (BM25 keyword matching)
+                    Prefetch(
+                        query=Document(text=full_text, model="Qdrant/bm25"),
+                        using="sparse",
+                        limit=TOP_K_RESULTS * 2  # Retrieve more candidates for fusion
+                    ),
+                ],
+                # RRF fusion combines both rankings
+                query=FusionQuery(fusion=Fusion.RRF),
+                limit=TOP_K_RESULTS,
+                with_payload=True
+            )
+        else:
+            # Dense-only search (fallback)
+            query_response = self.qdrant_client.query_points(
+                collection_name=self.collection_name,
+                query=query_embedding.tolist(),
+                using="dense",
+                limit=TOP_K_RESULTS,
+                with_payload=True
+            )
 
         # Transform to expected format
         similar_tickets = [

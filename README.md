@@ -1,10 +1,10 @@
 # IT Helpdesk Ticket Assistance System
 
-An AI-powered system that helps IT helpdesk agents resolve tickets faster by finding similar past cases and generating actionable recommendations using semantic search and large language models.
+An AI-powered system that helps IT helpdesk agents resolve tickets faster by finding similar past cases and generating actionable recommendations using hybrid search (semantic + keyword matching) and large language models.
 
 ## What It Does
 
-- 🔍 **Semantic Search**: Finds similar tickets using dense vector embeddings that capture meaning and handle synonyms
+- 🔍 **Hybrid Search**: Combines dense vector embeddings (semantic) and sparse BM25 vectors (keyword matching) with RRF fusion for optimal retrieval
 - 🤖 **AI Recommendations**: Generates specific resolution guidance using Llama 3.1 based on past solutions
 - ⚠️ **Smart Warnings**: Alerts when recommendations come from unresolved tickets
 - 🌐 **Web Interface**: Interactive Gradio UI for easy ticket processing
@@ -45,6 +45,7 @@ python scripts/build_index.py
 
 This processes all tickets (resolved and unresolved) from `data/old_tickets/` and builds a searchable index with:
 - Dense embeddings (384-dim vectors from sentence-transformers/all-MiniLM-L6-v2)
+- Sparse BM25 vectors (native Qdrant implementation for keyword matching)
 - Saves to `outputs/qdrant_storage/`
 
 ### 5. Use the System
@@ -78,8 +79,11 @@ Text Preprocessing (Issue + Description)
     ↓
 Embedding Generation (sentence-transformers/all-MiniLM-L6-v2)
     ↓
-Semantic Search (Qdrant):
-    Dense Vector Search (cosine similarity)
+Hybrid Search (Qdrant):
+  ├─ Dense Vector Search (semantic similarity)
+  └─ Sparse Vector Search (native BM25 keyword matching)
+         ↓
+    Reciprocal Rank Fusion (RRF) combines rankings
     ↓
 Retrieve Top-3 Similar Tickets (resolved + unresolved)
     ↓
@@ -90,7 +94,8 @@ Resolution Recommendation (meta-llama/Llama-3.1-8B-Instruct)
 
 **Key Features:**
 
-- **Semantic Search**: Dense embeddings capture meaning and handle synonyms effectively
+- **Hybrid Search**: Dense embeddings capture meaning while BM25 handles exact keyword matches (product names, error codes)
+- **Native RRF Fusion**: Qdrant's built-in Reciprocal Rank Fusion balances semantic and keyword results
 - **Direct Client Integration**: Simple architecture using Qdrant client without abstraction layers
 - **Unresolved Tickets**: System includes unresolved tickets but warns when using them as reference
 - **Persistent Storage**: Qdrant vector database for production-ready performance
@@ -103,7 +108,9 @@ Key settings in `src/config.py`:
 ```python
 TOP_K_RESULTS = 3              # Number of similar tickets to retrieve
 SIMILARITY_THRESHOLD = 0.0     # Minimum similarity score (0-1)
+ENABLE_SPARSE_VECTORS = True   # Enable native BM25 hybrid search
 EMBEDDING_DIMENSION = 384      # Dimension for all-MiniLM-L6-v2
+# Note: Qdrant's native BM25 uses default k1=1.2, b=0.75
 ```
 
 ## Project Structure
@@ -237,17 +244,19 @@ Solution: Close other Python processes using the database
 - Generation: `meta-llama/Llama-3.1-8B-Instruct`
 
 **Search Algorithm:**
-- Dense vector search using cosine similarity
+- Hybrid search with dense (semantic) + sparse (native BM25) vectors
+- Qdrant's built-in Reciprocal Rank Fusion (RRF) for result combination
 - Direct Qdrant client integration (no abstraction layers)
 - Category-based metadata filtering support
 
 **Architecture:**
-- Simplified codebase: ~500 lines removed (VectorStore wrapper + BM25 encoder)
 - Direct QdrantClient usage in RecommendationEngine
-- Semantic search captures meaning and handles synonyms
+- Native BM25 implementation (no custom encoder needed)
+- Hybrid search balances semantic understanding with keyword precision
 
 **Dependencies:**
 - `qdrant-client>=1.15.2` - Vector database
+- `fastembed>=0.2.0` - Required for native BM25 support
 - `gradio>=4.0.0` - Web interface
 - `pandas`, `numpy`, `requests` - Data processing
 - `python-dotenv` - Environment configuration
@@ -258,4 +267,3 @@ MIT License - see LICENSE file for details
 
 ---
 
-**Built with:** HuggingFace API • Qdrant • Llama 3.1 • sentence-transformers • Gradio

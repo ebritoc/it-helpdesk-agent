@@ -1,5 +1,5 @@
 # IT Helpdesk Ticket Assistance System
-## Case Study Documentation for Aleph Alpha
+## Case Study Documentation
 
 **Author:** Eduardo Brito Chacón
 **Date:** January 13 2025  
@@ -37,7 +37,7 @@ Based on the provided data and problem statement:
 
 1. **Historical tickets contain valuable resolution information** that can guide future cases
 2. **Semantic similarity captures issue relatedness** better than exact keyword matching alone
-3. **Both resolved and unresolved tickets are informative** — unresolved tickets show what doesn't work
+3. **Both resolved and unresolved tickets are informative** — unresolved tickets show what doesn't work or are still work-in-progress
 4. **Agents need direction, not automation** — the system augments human judgment
 5. **Response time matters** — agents need recommendations within seconds, not minutes
 
@@ -48,22 +48,24 @@ Based on the provided data and problem statement:
 ### 2.1 High-Level Design
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────────────────────┐
 │                           IT Helpdesk Assistant                              │
-├─────────────────────────────────────────────────────────────────────────────┤
+├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  ┌──────────────┐     ┌──────────────────┐     ┌────────────────────────┐   │
-│  │   New Ticket │────▶│ Text Preprocessor │────▶│  Embedding Generation  │   │
-│  │    Input     │     │   (Issue + Desc)  │     │ (all-MiniLM-L6-v2)     │   │
-│  └──────────────┘     └──────────────────┘     └───────────┬────────────┘   │
+│  ┌──────────────┐     ┌──────────────────┐       ┌────────────────────────┐  │
+│  │   New Ticket │────▶│Text Preprocessor│──────▶│  Embedding Generation  │  │
+│  │    Input     │     │   (Issue + Desc) │       │ (all-MiniLM-L6-v2)     │  │
+│  └──────────────┘     └──────────────────┘       └─────────┬──────────────┘  │
 │                                                            │                 │
 │                              ┌─────────────────────────────▼──────────────┐  │
-│                              │      SEMANTIC SEARCH (Qdrant)              │  │
+│                              │      HYBRID SEARCH (Qdrant)                │  │
 │                              │  ┌──────────────────────────────────────┐  │  │
-│                              │  │     Dense Vector Search              │  │  │
-│                              │  │       (Cosine Similarity)            │  │  │
-│                              │  │     Direct Qdrant Client             │  │  │
-│                              │  └─────────────────┬────────────────────┘  │  │
+│                              │  │ Dense: Semantic (Cosine, 384-dim)    │  │  │
+│                              │  │ Sparse: BM25 Keyword (native)        │  │  │
+│                              │  └──────────────────┬───────────────────┘  │  │
+│                              │  ┌──────────────────▼───────────────────┐  │  │
+│                              │  │ RRF Fusion (reciprocal rank combo)   │  │  │
+│                              │  └──────────────────┬───────────────────┘  │  │
 │                              └────────────────────┼───────────────────────┘  │
 │                                                   │                          │
 │                              ┌────────────────────▼───────────────────────┐  │
@@ -83,36 +85,41 @@ Based on the provided data and problem statement:
 │                              │  - Recommendation text                    │   │
 │                              │  - Similar tickets with details           │   │
 │                              │  - Status badges (Resolved/Unresolved)    │   │
-│                              └──────────────────────────────────────────┘   │
+│                              └───────────────────────────────────────────┘   │
 │                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 2.2 Technology Stack
 
 | Component | Technology | Rationale |
 |-----------|------------|-----------|
-| **Vector Database** | Qdrant (>=1.15.2) | Production-grade, direct client integration, persistent storage, simple architecture |
+| **Vector Database** | Qdrant (>=1.15.2) | Built-in hybrid search with native BM25 and RRF fusion, metadata filtering, production-grade, direct client integration |
 | **Dense Embeddings** | sentence-transformers/all-MiniLM-L6-v2 | Lightweight, fast, good semantic quality, 384 dimensions |
-| **Search Method** | Dense-only (Cosine Similarity) | Semantic search with direct Qdrant client, no abstractions |
+| **Sparse Vectors** | Qdrant native BM25 (fastembed) | Keyword matching for exact terms (product names, error codes), no custom encoder needed |
+| **Search Fusion** | Qdrant RRF | Reciprocal Rank Fusion automatically balances dense + sparse results |
+| **Search Method** | Hybrid (Dense + Sparse with RRF) | Best of both worlds: semantic understanding + keyword precision |
 | **LLM** | meta-llama/Llama-3.1-8B-Instruct | Open-source, instruction-tuned, good reasoning |
-| **Web Interface** | Gradio | Rapid prototyping, professional UI, built-in features |
-| **Data Processing** | Pandas | Flexible format support (CSV, XLSX, JSON) |
+| **Web Interface** | Gradio | Rapid prototyping, built-in features |
+| **Data Processing** | Pandas | Flexible input format support (CSV, XLSX, JSON) |
 
-### 2.3 Architecture Simplification
+### 2.3 Retrieval Approach
 
-**Current Approach: Dense-Only Semantic Search**
+**Hybrid Search with Native BM25**
 
-The system uses dense vector embeddings for semantic similarity search:
-- **Dense vectors**: Captures meaning, handles synonyms, abstracts concepts
+The system uses Qdrant's native capabilities for hybrid search:
+- **Dense vectors**: Captures semantics. Strong capturing synonyms, abstracts concepts (384-dim)
+- **Sparse vectors**: Native BM25. Strong for keyword matching (product names, error codes)
+- **RRF Fusion**: Built-in reciprocal rank fusion balances both approaches
 - **Direct Qdrant Client**: No abstraction layers, simplified codebase
-- **~300 lines eliminated**: Removed custom VectorStore wrapper
+- **No custom encoder**: Qdrant + fastembed handle BM25 automatically
 
-**Benefits of Simplification:**
-- ✅ Cleaner architecture with fewer moving parts
+**Benefits of Hybrid Search Native Implementation:**
+- ✅ Best of both worlds: semantic + keyword matching
+- ✅ Zero custom encoder code needed
 - ✅ Direct access to all Qdrant features
-- ✅ Easier to understand and maintain
-- ✅ Zero performance overhead from abstractions
+- ✅ Automatic RRF fusion (no manual tuning)
+- ✅ Simple architecture with minimal dependencies
 
 ---
 
@@ -169,66 +176,103 @@ EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 EMBEDDING_DIMENSION = 384
 ```
 
-### 3.4 Direct Qdrant Integration
+### 3.4 Native Hybrid Search with RRF Fusion
 
-**Simplified Architecture:**
+**Hybrid Search Architecture:**
 
-The system uses Qdrant client directly without abstraction layers:
+The system uses Qdrant's built-in capabilities for hybrid search:
+
+**Dense Vectors (Semantic)**:
+- 384-dimensional embeddings from all-MiniLM-L6-v2
+- Captures meaning, handles synonyms, abstracts concepts
+- Cosine similarity for scoring
+
+**Sparse Vectors (Keyword)**:
+- Qdrant's native BM25 implementation via fastembed
+- `Document(text=..., model="Qdrant/bm25")` for automatic encoding
+- Server-side IDF calculation with `Modifier.IDF`
+- Handles exact matches: product names, error codes, technical terms
+
+**RRF Fusion**:
+- Prefetch runs dense + sparse queries in parallel
+- `FusionQuery(fusion=Fusion.RRF)` combines rankings
+- Reciprocal rank scoring: score = Σ(1 / (60 + rank))
+- No manual weight tuning needed
 
 ```python
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import (
+    Distance, VectorParams, PointStruct, Document,
+    SparseVectorParams, SparseIndexParams, Modifier,
+    Prefetch, FusionQuery, Fusion
+)
 
 # Initialize client
 client = QdrantClient(path="./qdrant_storage")
 
-# Create collection
+# Create collection with hybrid vectors
 client.create_collection(
     collection_name="helpdesk_tickets",
     vectors_config={
         "dense": VectorParams(size=384, distance=Distance.COSINE)
+    },
+    sparse_vectors_config={
+        "sparse": SparseVectorParams(
+            index=SparseIndexParams(),
+            modifier=Modifier.IDF
+        )
     }
 )
 
-# Index tickets
+# Index tickets with both dense and sparse vectors
+ticket_text = f"{ticket['issue']} {ticket['description']}"
 points = [
     PointStruct(
         id=idx,
-        vector={"dense": embedding.tolist()},
+        vector={
+            "dense": embedding.tolist(),
+            "sparse": Document(text=ticket_text, model="Qdrant/bm25")
+        },
         payload=ticket
     )
     for idx, (ticket, embedding) in enumerate(zip(tickets, embeddings))
 ]
 client.upsert(collection_name="helpdesk_tickets", points=points)
 
-# Search
+# Hybrid search with RRF fusion
+full_text = f"{query_ticket['issue']} {query_ticket['description']}"
 results = client.query_points(
     collection_name="helpdesk_tickets",
-    query=query_embedding.tolist(),
-    using="dense",
-    limit=5
+    prefetch=[
+        Prefetch(query=query_embedding.tolist(), using="dense", limit=6),
+        Prefetch(query=Document(text=full_text, model="Qdrant/bm25"), using="sparse", limit=6),
+    ],
+    query=FusionQuery(fusion=Fusion.RRF),
+    limit=3
 )
 ```
 
 **Benefits:**
+- **Best of both worlds**: Semantic understanding + keyword precision
+- **Zero custom encoder code**: Qdrant + fastembed handle BM25 automatically
+- **Built-in RRF fusion**: No manual score combination needed
 - **No abstraction overhead**: Direct API calls to Qdrant
-- **Simpler codebase**: ~500 lines of code eliminated (VectorStore + BM25 encoder)
 - **Full feature access**: All Qdrant capabilities immediately available
-- **Easier to understand**: Clear data flow without wrapper layers
 
 ### 3.5 RecommendationEngine (Core Logic)
 
 Key features:
 - **Persistent storage**: Data survives restarts via Qdrant
 - **Direct client integration**: Uses QdrantClient without abstraction layers
-- **Dense semantic search**: Cosine similarity on 384-dimensional embeddings
+- **Hybrid search**: Combines dense semantic + sparse BM25 with RRF fusion
 - **Metadata filtering**: Category-based pre-filtering via payload index
 - **Payload storage**: Full ticket data stored with vectors
 
 ```python
 # Search configuration
 TOP_K_RESULTS = 3
-# Dense-only semantic search with cosine similarity
+ENABLE_SPARSE_VECTORS = True  # Enable hybrid search with native BM25
+# Qdrant's native BM25 with RRF fusion (no manual tuning needed)
 ```
 
 ### 3.6 LLM Recommendation Generation
@@ -276,9 +320,10 @@ resolution recommendation...
 Testing with evaluation tickets revealed:
 
 **Strengths:**
-- Semantic matches found across different phrasings ("VPN timeout" ↔ "VPN disconnects")
+- Semantic matches across phrasings: "VPN timeout" ↔ "VPN disconnects"
+- Keyword matches for exact terms: "Outlook", "Active Directory", error codes
+- Hybrid search balances both approaches via RRF fusion
 - Category-relevant tickets consistently ranked high
-- Dense embeddings capture conceptual similarity effectively
 
 **Weaknesses:**
 - Small corpus limits retrieval diversity
@@ -315,30 +360,32 @@ Testing with evaluation tickets revealed:
 2. **No caching layer**: LLM calls made for every request
 3. **Single-node deployment**: No horizontal scaling considerations
 4. **No authentication**: Open access to the interface
+5. **Tailored for Qdrant**: Migrating to a different vector DB may need a architecture adaptation
 
 ### 5.3 Evaluation Limitations
 
 1. **No ground truth labels**: Cannot compute precision/recall metrics
-2. **Subjective quality**: "Good" recommendations are agent-dependent
+2. **Subjective quality**: "Good" recommendations are tester-dependent
 3. **Limited test set**: Only 10 evaluation tickets
 
 ---
 
 ## 6. Future Improvements
 
-### 6.1 Short-term (1-2 weeks)
+### 6.1 Short-term 
 
 1. **Evaluation framework**: Create labeled test set with expected similar tickets
 2. **Async LLM calls**: Non-blocking recommendation generation
 3. **Result caching**: Cache recommendations for identical queries
 4. **Better error handling**: Graceful degradation when services unavailable
 
-### 6.2 Medium-term (1-2 months)
+### 6.2 Medium-term
 
-1. **Domain-specific embeddings**: Fine-tune on IT helpdesk corpus
+1. **Domain-specific embeddings**: Fine-tune embedding model on IT helpdesk corpus
 2. **Re-ranking model**: Add cross-encoder for result refinement
 3. **Feedback integration**: Agent can mark recommendations as helpful/unhelpful
-4. **Multi-language support**: Translate and embed in multiple languages
+4. **Multi-language support**: Embed and recommend in multiple languages if we may expect non-English tickets.
+5. **Assess value of late-interaction bag-of-embeddings**: Evaluate ColBERT-style late interaction models for better semantic matching with token-level precision.
 
 ### 6.3 Long-term (3+ months)
 
@@ -356,25 +403,14 @@ Testing with evaluation tickets revealed:
 **Decision:** Index both resolved AND unresolved tickets
 
 **Rationale:**
-- Unresolved tickets show what doesn't work
-- Agents benefit from knowing attempted solutions
+- Given the small corpus size, many new tickets have no semantically similar resolved tickets -> Finding similar unresolved tickets is more informative than unrelated resolved tickets (and demonstrates that retrieval works)
+- Unresolved tickets may show what doesn't work or potential resulution still in progress
 - System explicitly warns when referencing unresolved cases
 
 **Trade-off:** May surface incomplete information, but transparency mitigates risk
 
-### 7.2 Dense-Only Semantic Search
 
-**Decision:** Use dense vector embeddings only with direct Qdrant client
-
-**Rationale:**
-- Semantic embeddings capture meaning and handle synonyms effectively
-- Simplified architecture with no abstraction layers
-- Direct access to all Qdrant features
-- Eliminates ~500 lines of wrapper code
-
-**Trade-off:** May miss exact keyword matches, but gains architectural simplicity
-
-### 7.3 Free-tier API vs Local Models
+### 7.2 Free-tier API vs Local Models
 
 **Decision:** Use HuggingFace free API (as instructed)
 
@@ -398,7 +434,7 @@ Testing with evaluation tickets revealed:
 | Authentication | ❌ Missing | Open access |
 | Rate limiting | ❌ Missing | No request throttling |
 | API documentation | ⚠️ Partial | README covers usage |
-| Unit tests | ❌ Missing | No automated tests |
+| Unit/integration tests | ❌ Missing | No automated tests |
 | CI/CD | ❌ Missing | Manual deployment only |
 
 ---
@@ -424,18 +460,24 @@ python scripts/build_index.py
 
 ### Architecture Note
 
-**Simplified to Dense-Only Search:**
+**Hybrid Search with Native BM25:**
 
-The system uses direct Qdrant client integration without abstraction layers. Benefits include:
-- Simpler codebase (~500 lines removed: VectorStore wrapper + BM25 encoder)
-- Direct access to all Qdrant features
-- No abstraction overhead
+The system uses Qdrant's native capabilities for hybrid search. Benefits include:
+- Best of both worlds: semantic + keyword matching
+- Native BM25 implementation (no custom encoder needed)
+- Built-in RRF fusion (automatic ranking combination)
+- Direct Qdrant client integration
+- Simple architecture with minimal dependencies
+
+**Requirements:**
+1. `qdrant-client>=1.15.2` - Vector database with hybrid search support
+2. `fastembed>=0.2.0` - Required for native BM25 sparse vectors
 
 **Migration from previous versions:**
-1. Upgrade qdrant-client: `pip install -U qdrant-client>=1.15.2`
-2. Delete old Qdrant collection (or let build_index.py recreate it)
+1. Upgrade dependencies: `pip install -U qdrant-client>=1.15.2 fastembed>=0.2.0`
+2. Delete old Qdrant collection: `rm -rf outputs/qdrant_storage/`
 3. Rebuild index: `python scripts/build_index.py`
-4. Old files no longer needed: `src/vector_store.py`, `outputs/qdrant_storage/sparse_encoder.pkl`
+4. Old files no longer needed: `src/vector_store.py`, `src/sparse_encoder.py`
 
 ### Run Web Interface
 ```bash
@@ -455,14 +497,14 @@ python scripts/generate_recommendations.py
 
 This solution demonstrates a pragmatic approach to the IT helpdesk assistance problem:
 
-1. **Semantic search** with dense embeddings captures meaning and handles synonyms
-2. **RAG architecture** combines retrieval with LLM generation
-3. **Transparent warnings** about unresolved references build agent trust
-4. **Production-grade components** (Qdrant, Gradio) enable real deployment
-5. **Simplified architecture** with direct client integration reduces complexity
+1. **Hybrid search** with dense + sparse vectors balances semantic understanding and keyword precision
+2. **Native BM25 implementation** via Qdrant eliminates custom encoder complexity from other solutions
+3. **Built-in RRF fusion** automatically combines rankings without custom implementation
+4. **RAG architecture** combines retrieval with LLM generation
+5. **Transparent warnings** about unresolved references build agent trust
+6. **Simplified architecture** with direct client integration reduces complexity
 
 The focus was on delivering a **working, demonstrable system** rather than a perfect but incomplete solution. Future iterations would benefit from larger training data, domain-specific fine-tuning, and a proper evaluation framework.
 
 ---
 
-*Document prepared for Aleph Alpha AI Solutions Engineer case study presentation*
